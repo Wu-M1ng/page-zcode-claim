@@ -1,6 +1,6 @@
 {
   "name": "@magpie-community/page-zcode-claim",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "ZCode 领卡中心：列出每个账号可领的赠卡，点一下用官方阿里云无痕组件取票并携票领取。ZCode gift-plan claim center: list what each account can claim, then claim it with the official Aliyun captcha ticket taken in this window.",
   "author": "page-zcode-claim contributors",
   "type": "module",
@@ -11,7 +11,8 @@
     "page",
     "ui",
     "LICENSE",
-    "README.md"
+    "README.md",
+    "CHANGELOG.md"
   ],
   "engines": {
     "magpie": ">=0.1.3800"

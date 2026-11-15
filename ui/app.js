@@ -270,7 +270,12 @@ function rowFor(account) {
     const disabled = el('button', 'primary', '领取')
     disabled.type = 'button'
     disabled.disabled = true
-    side0.append(disabled)
+    // 没有可用凭据就读不到用户标识，报上去也是空身份
+    const disabledActive = el('button', 'ghost', '活跃')
+    disabledActive.type = 'button'
+    disabledActive.disabled = true
+    disabledActive.title = '登录已失效，拿不到用户标识'
+    side0.append(disabled, disabledActive)
     card.append(avatar, body, side0)
     return card
   }
@@ -289,6 +294,16 @@ function rowFor(account) {
   button.type = 'button'
   button.addEventListener('click', () => { void claim(account, button, hint) })
   side.append(button)
+
+  // 手动补报活跃：跟领取里的自动上报同一个接口，只是不受「今天已报」限制
+  const activeButton = el('button', 'ghost' + (account.activation_today ? ' is-done' : ''),
+    account.activation_today ? '活跃 ✓' : '活跃')
+  activeButton.type = 'button'
+  activeButton.title = account.activation_today
+    ? '今天已补报过 app_launch + app_daily_active。再点会再报一次。'
+    : '补报一次 app_launch + app_daily_active，运营侧据此发放领取资格'
+  activeButton.addEventListener('click', () => { void reportActivation(account, activeButton, hint) })
+  side.append(activeButton)
 
   card.append(avatar, body, side)
   return card
@@ -326,6 +341,35 @@ function hintOf(account) {
   return card ? card.querySelector('.card-status') : null
 }
 
+// 手动补报一次活跃事件。服务端的 /api/activation 不看 ZCODE_CLAIM_ACTIVATION，
+// 也不看「今天报过了」—— 点了就报，这是显式意图。
+async function reportActivation(account, button, hint) {
+  if (button.disabled) return
+  busyButton(button, true)
+  try {
+    const result = await api('/api/activation', { method: 'POST', body: { account: account.id } })
+    if (result.ok) {
+      account.activation_today = true
+      button.textContent = '活跃 ✓'
+      button.classList.add('is-done')
+      button.title = '今天已补报过。再点会再报一次。'
+      setHint(hint, { kind: 'ok', text: result.message || '活跃事件已补报' })
+      toast('活跃事件已补报')
+      // 记录列表不会自己变，报完就拉一下，不然会以为没生效
+      void loadLog()
+    } else {
+      // message 里已经带了「活跃上报失败: …」，不再套一层
+      setHint(hint, { kind: 'error', text: result.message || result.skipped || '活跃上报没成功' })
+      toast(result.message || '活跃上报没成功', true)
+    }
+  } catch (error) {
+    setHint(hint, { kind: 'error', text: `活跃上报没成功：${error.message}` })
+    toast(`活跃上报没成功：${error.message}`, true)
+  } finally {
+    busyButton(button, false)
+  }
+}
+
 async function claim(account, button, hint, { force = false } = {}) {
   if (state.busy) return
   state.busy = true
@@ -358,8 +402,14 @@ async function claim(account, button, hint, { force = false } = {}) {
         setHint(hint, { kind: 'error', text: `上游回包读不懂${unread.length ? `（${unread[0]}）` : ''}，没确认是否真的没有卡。`, action: again() })
         return
       }
+      // source_notes 是「为什么没有卡」：版本头太低、营销接口没部署……
+      // 吞掉它就只剩「没有卡」，用户只会反复点
+      const notes = Array.isArray(got.source_notes) ? got.source_notes.filter(Boolean) : []
+      let why = '当前没有可领的卡（营销 feed 为空）。'
+      if (unread.length) why = `读取失败：${unread.join('；')}`
+      else if (notes.length) why = notes.join('；')
       setHint(hint, {
-        text: unread.length ? `读取失败：${unread.join('；')}` : '当前没有可领的卡（营销 feed 为空）。',
+        text: why,
         kind: unread.length ? 'error' : '',
         action: unread.length ? again() : null,
       })
@@ -447,18 +497,25 @@ async function claim(account, button, hint, { force = false } = {}) {
 }
 
 function logItem(row) {
-  const ok = row.kind === 'claim' && row.ok
-  const item = el('li', 'tl-item ' + (row.kind !== 'claim' ? 'idle' : ok ? 'ok' : 'bad'))
+  const kind = row.kind || 'claim'
+  // 记录里不只有「领取」：活跃上报与营销回执也会落一条，不能让它们冒充一张赠卡
+  const ok = kind === 'import' ? null : Boolean(row.ok)
+  let tone = 'bad'
+  if (kind === 'import') tone = 'idle'
+  else if (ok) tone = 'ok'
+  const item = el('li', `tl-item ${tone}`)
   item.append(el('span', 'tl-dot'))
 
   const body = el('div', 'tl-body')
-  const title = el('div', 'tl-title', row.kind === 'import'
-    ? `导入账号 ${(row.ids || []).join('、')}`
-    : ok
-      ? `${row.plan || row.plan_id || '赠卡'} · 已领取`
-      : `${row.plan || row.plan_id || '赠卡'} · ${row.message || row.code || '失败'}`)
+  let title = ''
+  if (kind === 'import') title = `导入账号 ${(row.ids || []).join('、')}`
+  else if (kind === 'activation') title = `活跃事件 · ${ok ? '已补报' : (row.message || row.code || '失败')}`
+  else if (kind === 'confirm') title = `营销回执 · ${ok ? '已确认' : (row.message || row.code || '失败')}${row.recheck ? ` · 复查：${row.recheck}` : ''}`
+  else if (ok) title = `${row.plan || row.plan_id || '赠卡'} · 已领取`
+  else title = `${row.plan || row.plan_id || '赠卡'} · ${row.message || row.code || '失败'}`
+
   const meta = el('div', 'tl-meta', `${clock(row.at)} · ${ago(row.at)}${row.ms ? ` · ${row.ms} ms` : ''}`)
-  body.append(title, meta)
+  body.append(el('div', 'tl-title', title), meta)
   item.append(body)
   return item
 }

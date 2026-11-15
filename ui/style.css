@@ -153,6 +153,12 @@ button.primary:hover:not(:disabled) {
 button.ghost { background: transparent; }
 button.ghost:hover:not(:disabled) { background: var(--surface-2); }
 
+/* 「活跃 ✓」：今天已经报过了，按钮还在（再点会再报一次），但颜色收一下 */
+button.ghost.is-done {
+  border-color: color-mix(in srgb, var(--ok, #3fbf7f) 40%, transparent);
+  color: color-mix(in srgb, var(--ok, #3fbf7f) 82%, var(--magpie-fg, #fff));
+}
+
 button svg { flex: none; }
 
 /* 按钮里的转圈：is-busy 时把文字藏起来只留圈 */

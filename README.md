@@ -64,6 +64,7 @@ magpie plugin options page-zcode-claim '{"port":3528}'   # 名字也可以是短
 
 **时间窗口。** `starts_at` / `ends_at` 一律按毫秒读（上游混着给秒），窗口三态：未开窗、可领、已结束。
 未开窗的卡不发 claim，只告诉你「北京时间 X 开启」；上游没给时间就按可领处理。
+判定用的是**上游的钟**：feed 里的 `server_time` 与本机对一下，偏差超过 30 秒就采信上游（本机时间不准也不会误判窗口）。
 
 **营销回执。** 领取成功（含 1003）后向活动位回一条 `confirm`，再复查一次 feed。这两步都是备注：
 失败不会推翻一次服务端已经确认的领取，失败原因写在下方记录里。
@@ -71,6 +72,8 @@ magpie plugin options page-zcode-claim '{"port":3528}'   # 名字也可以是短
 **活跃上报。** 官方客户端启动 / 日活时会报 `app_launch` 与 `app_daily_active`，运营侧据此发资格。
 页面插件不是那个客户端，所以在**第一次领取前**补这两条；同一账号按北京时间每天只报一次。
 该接口不带 Authorization，身份取自 JWT 载荷里的用户标识。
+上报**失败也算报过**（4xx 重试也救不回来，反复打只会把账号打成高频），原因写进记录；
+真要补救用下面的手动端点，它不受开关与「今天已报」限制。
 
 | 环境变量 | 默认 | 作用 |
 | --- | --- | --- |
@@ -79,7 +82,11 @@ magpie plugin options page-zcode-claim '{"port":3528}'   # 名字也可以是短
 | `ZCODE_CLAIM_TZ` | 系统时区 | 上报里的 `client_timezone`，可强制成 `unknown` |
 | `ZCODE_CLAIM_SCREEN` | `2560x1440` | 上报里的 `screen_resolution`（Node 里读不到屏幕尺寸） |
 
-手动补报一次活跃事件（排查用）：
+每个账号卡片右侧的「活跃」按钮可以随时手动补报一次（不受上面的开关与「今天已报」限制）。
+报成功会变成「活跃 ✓」，下方记录里落一条「活跃事件 · 已补报」。
+双击 / 浏览器重试不会把号打成高频：5 秒内的重复请求直接复用上一次结果。
+
+命令行也能补（排查用）：
 
 ```sh
 curl -s -X POST 'http://127.0.0.1:3527/api/activation?k=<页面口令>' \
@@ -135,7 +142,7 @@ magpie plugin options page-zcode-claim '{"port":3527,"bind":"0.0.0.0"}'
 | `not_open` / `expired` | 本地时间窗守卫：没开窗 / 已结束，**一个 claim 都不发**（只对刚读过列表的卡生效） |
 | 回包读不懂 | 只算「没确认」，绝不当成功 |
 
-## 六个踩过的坑（改代码前先看）
+## 踩过的坑（改代码前先看）
 
 0. **带路页不要 `await` 桥接**。`magpie.ready` 在没有窗口的场景（服务器、magpie web）可能**永远不 resolve**，
    于是页面永远停在「正在连接本地领卡服务…」——不是策略拦的，是自己等死的。桥接调用一律限时，
@@ -159,6 +166,11 @@ magpie plugin options page-zcode-claim '{"port":3527,"bind":"0.0.0.0"}'
    只看第一个按钮就会得出「没有可领卡」的假结论。
 5. **拒收假票**。SDK 初始化失败时仍会 fire 一个 76 字符的 `success`，内容只有 `{certifyId, sceneId, isSign}`；
    真票约 280 字符且带 `securityToken`。`lib/server.mjs` 的 `ticketOf()` 会挡掉假票，否则白烧一次领取机会。
+6. **一条 delivery 里可能有好几张卡**。元数据按 `plan_id` 归并，不能「第一个 `zcode_plan` 套给所有卡」——
+   旧写法会让第二张卡顶着第一张卡的名字、到期时间和权益。`testdata/touch-multi-plan.json` 是这个场景的回归用例。
+7. **窗口不能用本机钟判**。虚拟机、双系统、久未同步的机器都会偏；feed 每次都带 `server_time`，
+   用它算偏差再判 `starts_at` / `ends_at`（`clockSkew()`，偏差超 30 秒才采信）。
+   活跃上报同理：`device_mid` 必须落盘（`zcode-claim/device.json`），每次重启换一个号等于每次都是新设备。
 
 ## 为什么取票可能需要你点一下
 
