@@ -13,8 +13,11 @@ export default {
       // 端口 0 或非法值归成 undefined：页面与这里读的是同一份 options。
       const value = Number(options?.port)
       const port = Number.isInteger(value) && value > 0 && value < 65536 ? value : undefined
+      // bind：默认只听回环。服务器/Docker 里要让局域网或反代访问时设成 0.0.0.0。
+      // 页面口令、Host 与 Origin 校验都还在，所以放宽监听地址不等于把接口敞开。
       started = startServer({
         port,
+        host: options?.bind,
         directory: input?.directory,
         auth: input?.client?.auth,
         options: { option: input?.magpie?.option },

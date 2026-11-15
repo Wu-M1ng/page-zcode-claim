@@ -17,6 +17,8 @@
     .waiting { display: grid; gap: 6px; max-width: 480px; padding: 0 20px; text-align: center; }
     .waiting b { font-size: 14px; font-weight: 600; }
     button { justify-self: center; margin-top: 8px; padding: 5px 14px; font: inherit; }
+    #hint { margin-top: 10px; font-size: 12px; line-height: 1.6; opacity: .7; }
+    #hint code { font-size: 12px; }
   </style>
 </head>
 <body>
@@ -24,6 +26,7 @@
     <b id="title">ZCode Claim</b>
     <div id="said">Connecting to the local claim service...</div>
     <button id="retry" type="button" hidden>Retry</button>
+    <div id="hint">If this page stays here: the service listens on 127.0.0.1 of the machine running magpie. In Docker or on a remote host, set the plugin option <code>bind</code> to <code>0.0.0.0</code> (or let magpie web forward it), then reload the plugin.</div>
   </div>
   <script src="_magpie/bridge.js"></script>
   <script src="boot.js"></script>
