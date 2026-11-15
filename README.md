@@ -47,6 +47,45 @@ magpie plugin options page-zcode-claim '{"port":3528}'   # 名字也可以是短
 
 也可以编辑 magpie 配置目录下 `plugins.json` 里这一项的 `"options"`。改完重启插件（`on/off` 或重载）生效。
 
+## 一次领取会发生什么
+
+```text
+读可领卡  ─► 解析（按 plan_id 归并元数据）+ 算窗口状态
+     │
+     ├ 未开窗 / 已结束 ─► 直接 409，一个 claim 都不发（省掉 1005 / 1004）
+     │
+     ├ 今天还没报过 ─► 补报 app_launch + app_daily_active（一天一次）
+     │
+     └ 要验证 ─► 取票 ─► POST claim
+                        │
+                        └ 成功 ─► POST marketing/touch/action（回执）
+                                  └ 复查一次 feed（只作备注）
+```
+
+**时间窗口。** `starts_at` / `ends_at` 一律按毫秒读（上游混着给秒），窗口三态：未开窗、可领、已结束。
+未开窗的卡不发 claim，只告诉你「北京时间 X 开启」；上游没给时间就按可领处理。
+
+**营销回执。** 领取成功（含 1003）后向活动位回一条 `confirm`，再复查一次 feed。这两步都是备注：
+失败不会推翻一次服务端已经确认的领取，失败原因写在下方记录里。
+
+**活跃上报。** 官方客户端启动 / 日活时会报 `app_launch` 与 `app_daily_active`，运营侧据此发资格。
+页面插件不是那个客户端，所以在**第一次领取前**补这两条；同一账号按北京时间每天只报一次。
+该接口不带 Authorization，身份取自 JWT 载荷里的用户标识。
+
+| 环境变量 | 默认 | 作用 |
+| --- | --- | --- |
+| `ZCODE_CLAIM_ACTIVATION` | `1` | 设为 `0` 关掉活跃上报 |
+| `ZCODE_CLAIM_APP_VERSION` | `3.18.0` | 客户端版本头（UA / `X-ZCode-App-Version` / 上报里的 `app_version` 同一个源） |
+| `ZCODE_CLAIM_TZ` | 系统时区 | 上报里的 `client_timezone`，可强制成 `unknown` |
+| `ZCODE_CLAIM_SCREEN` | `2560x1440` | 上报里的 `screen_resolution`（Node 里读不到屏幕尺寸） |
+
+手动补报一次活跃事件（排查用）：
+
+```sh
+curl -s -X POST 'http://127.0.0.1:3527/api/activation?k=<页面口令>' \
+  -H 'content-type: text/plain' -d '{"account":"zcode#你的账号"}'
+```
+
 ## 在服务器上打开（Docker、局域网、magpie web）
 
 页面分两层：magpie 里的**带路页**（`page/`，跑在框架的 sandbox 里，策略是 `connect-src 'none'`，
@@ -93,6 +132,7 @@ magpie plugin options page-zcode-claim '{"port":3527,"bind":"0.0.0.0"}'
 | `code 3007` | 安全验证未通过 → 换新票重试一次，仍失败则转人工 |
 | `code 3012` | 账号被风控拦下 → 停手 6 小时，不再试 |
 | `429` / `code 3002` | 请求过于频繁 → 停手，按 `Retry-After` 退避（见下） |
+| `not_open` / `expired` | 本地时间窗守卫：没开窗 / 已结束，**一个 claim 都不发**（只对刚读过列表的卡生效） |
 | 回包读不懂 | 只算「没确认」，绝不当成功 |
 
 ## 六个踩过的坑（改代码前先看）

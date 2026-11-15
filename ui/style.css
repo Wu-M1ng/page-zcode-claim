@@ -290,6 +290,20 @@ main {
   background: color-mix(in srgb, var(--ok) 10%, transparent);
 }
 
+/* 未开窗 / 已结束：卡还在，但现在领不到 —— 不跟「可领」共用一套颜色 */
+.chip.is-future,
+.chip.is-expired {
+  border-color: color-mix(in srgb, var(--magpie-muted, GrayText) 45%, transparent);
+  background: color-mix(in srgb, var(--magpie-muted, GrayText) 12%, transparent);
+}
+
+.chip.is-future .chip-name,
+.chip.is-expired .chip-name {
+  color: color-mix(in srgb, var(--magpie-muted, GrayText) 75%, var(--magpie-fg, #fff));
+}
+
+.chip.is-expired { opacity: 0.7; }
+
 .chip.is-done .chip-name { color: var(--ok); text-decoration: line-through; text-decoration-thickness: 1px; }
 
 .chip-tick { color: var(--ok); font-weight: 700; }

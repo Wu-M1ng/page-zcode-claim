@@ -17,7 +17,8 @@
     "magpie": ">=0.1.3800"
   },
   "scripts": {
-    "start": "node lib/serve.mjs"
+    "start": "node lib/serve.mjs",
+    "test": "node test/run-logic.cjs && node test/run-matrix.cjs && node test/run-edgecases.cjs"
   },
   "keywords": [
     "magpie",

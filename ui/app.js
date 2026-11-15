@@ -119,6 +119,40 @@ function endsIn(value) {
   return `剩 ${Math.round(left / 86_400_000)} 天`
 }
 
+// 上游把 starts_at / ends_at 统一成毫秒了（lib/zcode.mjs 的 epochMs），
+// 但页面拿到的也可能是旧缓存里的秒值：两种都认。
+const asMs = (value) => {
+  const n = Number(value)
+  if (!Number.isFinite(n) || n <= 0) return 0
+  return n < 1e12 ? n * 1000 : n
+}
+
+const beijingClock = (ms) => {
+  try {
+    return new Intl.DateTimeFormat('zh-CN', {
+      timeZone: 'Asia/Shanghai', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', hour12: false,
+    }).format(new Date(ms))
+  } catch {
+    return new Date(ms).toISOString().slice(5, 16).replace('T', ' ')
+  }
+}
+
+// 窗口状态由服务端算好（state），这里只负责怎么说人话
+const planState = (plan) => plan.state || 'active'
+
+const windowText = (plan) => {
+  const state = planState(plan)
+  if (state === 'future') return `北京时间 ${beijingClock(asMs(plan.starts_at))} 开启`
+  if (state === 'expired') return '已结束'
+  return ''
+}
+
+// 一张卡给什么：名字 + 额度 + 单位（GLM-5.3-Flash 500000000token）
+const grantsText = (plan) => (Array.isArray(plan.entitlements) ? plan.entitlements : [])
+  .map((entry) => `${entry.name} ${entry.grant}${entry.unit}`)
+  .join(' · ')
+
 // 数字换值时数一下，别硬跳
 function countUp(node, next) {
   if (!node) return
@@ -186,13 +220,23 @@ function chipsFor(account) {
   const box = el('div', 'chips')
   for (const plan of info.plans) {
     const done = isDone(plan.plan_id, account.id)
-    const chip = el('span', 'chip' + (done ? ' is-done' : ''))
+    const state = planState(plan)
+    const chip = el('span', 'chip' + (done ? ' is-done' : '') + (state !== 'active' ? ' is-' + state : ''))
     chip.append(el('span', 'chip-name', plan.name || plan.plan_id))
-    const ends = endsIn(plan.ends_at)
-    if (ends) chip.append(el('span', 'chip-ends', ends))
+    // 未开窗 / 已结束说的是另一件事，不该和「还剩几天」挤在同一个位置
+    const window = windowText(plan)
+    if (window) chip.append(el('span', 'chip-ends', window))
+    else {
+      const ends = endsIn(plan.ends_at)
+      if (ends) chip.append(el('span', 'chip-ends', ends))
+    }
     if (done) chip.append(el('span', 'chip-tick', '✓'))
-    chip.title = plan.campaign_id ? `${plan.plan_id}
-活动 ${plan.campaign_id}` : plan.plan_id
+    const grants = grantsText(plan)
+    chip.title = [
+      plan.plan_id,
+      plan.campaign_id ? `活动 ${plan.campaign_id}` : '',
+      grants,
+    ].filter(Boolean).join('\n')
     box.append(chip)
   }
   return box
@@ -321,10 +365,24 @@ async function claim(account, button, hint, { force = false } = {}) {
       })
       return
     }
-    hint.textContent = `可领 ${plans.length} 张，正在验证…`
+    // 没开窗 / 已结束的卡不发 claim：上游只会回 1005 / 1004，白烧一次机会
+    const ready = plans.filter((plan) => planState(plan) === 'active')
+    const future = plans.filter((plan) => planState(plan) === 'future')
+    if (!ready.length) {
+      setHint(hint, {
+        text: future.length
+          ? `活动还没开窗：${future.map((plan) => `${plan.name || plan.plan_id} ${windowText(plan)}`).join('；')}`
+          : '这些卡都已经结束了，没有可领的。',
+        action: again('再查一次'),
+      })
+      return
+    }
+    hint.textContent = ready.length === plans.length
+      ? `可领 ${plans.length} 张，正在验证…`
+      : `可领 ${ready.length} 张（跳过 ${plans.length - ready.length} 张未开窗或已结束），正在验证…`
 
     const scene = await api(`/api/scene?account=${encodeURIComponent(account.id)}`)
-    const jobs = plans.map((plan) => ({
+    const jobs = ready.map((plan) => ({
       ...plan,
       scene_id: scene.scene_id || '',
       region: scene.region || 'cn',
@@ -364,7 +422,13 @@ async function claim(account, button, hint, { force = false } = {}) {
     } else if (result.code === 'expired') {
       setHint(hint, { kind: 'error', text: '验证会话过期，重新点「领取」会取一张新票。' })
     } else if (result.claimed) {
-      setHint(hint, { kind: 'ok', text: `已领取 ${result.claimed} / ${jobs.length} 张。` })
+      // 营销回执是服务端在领取成功后补的；确认到了就把这件事说出来
+      const receipts = (Array.isArray(result.results) ? result.results : [])
+        .map((row) => row.confirm)
+        .filter((item) => item && item.ok)
+      const receiptCount = receipts.reduce((sum, item) => sum + (item.confirmed || 0), 0)
+      const tail = receiptCount ? ` 营销回执已确认 ${receiptCount} 个` : ''
+      setHint(hint, { kind: 'ok', text: `已领取 ${result.claimed} / ${jobs.length} 张。${tail}` })
       if (popup) hint.title = popup // feed 里客户端自己的分享文案，选中就能复制
       toast(`已领取 ${result.claimed} 张卡`)
     } else {
