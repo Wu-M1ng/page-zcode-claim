@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="zcode-claim-key" content="__ZCODE_CLAIM_KEY__">
+  <title>ZCode 领卡中心</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="claim-dialog.css">
+</head>
+<body>
+  <header class="hero">
+    <div class="hero-badge" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
+        <path d="M3.5 8.5h9M3.5 12h13M3.5 15.5h6"/>
+        <circle cx="19" cy="16" r="2.6"/>
+        <path d="M19 13.4V11"/>
+      </svg>
+    </div>
+    <div class="hero-text">
+      <h1>ZCode 领卡中心</h1>
+      <p class="hero-sub" id="subtitle">读取中…</p>
+    </div>
+    <div class="hero-actions">
+      <button type="button" class="ghost" id="refresh">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+          <path d="M20 12a8 8 0 1 1-2.6-5.9"/>
+          <path d="M20 4.5V11h-6.2"/>
+        </svg>
+        <span>刷新</span>
+      </button>
+    </div>
+  </header>
+
+  <section class="stats" aria-label="概览">
+    <div class="stat">
+      <span class="stat-num" id="stat-accounts">—</span>
+      <span class="stat-label">账号</span>
+    </div>
+    <div class="stat">
+      <span class="stat-num" id="stat-claimable">—</span>
+      <span class="stat-label">可领卡</span>
+    </div>
+    <div class="stat">
+      <span class="stat-num" id="stat-claimed">—</span>
+      <span class="stat-label">今日已领</span>
+    </div>
+  </section>
+
+  <main>
+    <section class="accounts" id="accounts" aria-live="polite"></section>
+    <div class="empty-box" id="empty" hidden>
+      <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+        <rect x="3" y="5.5" width="18" height="13" rx="2.5"/>
+        <path d="M3 10.2h18M7.6 14.6h4.2"/>
+      </svg>
+      <b>没有找到 ZCode 账号</b>
+      <span>先在这个 magpie 里登录 ZCode，再回来点「刷新」。</span>
+    </div>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>领取记录</h2>
+        <span class="muted small" id="log-count"></span>
+      </div>
+      <ol class="timeline" id="log"></ol>
+      <p class="empty-hint" id="log-empty">还没有记录。点某张账号的「领取」开始。</p>
+    </section>
+  </main>
+
+  <div class="toast" id="toast" hidden></div>
+
+  <script src="sandbox-shim.js"></script>
+  <script type="module" src="app.js"></script>
+  <script>
+    // 兜底：框架里的 CSP 或模块加载出问题时，页面不会永远停在「读取中…」
+    setTimeout(function () {
+      var s = document.getElementById('subtitle')
+      if (s && s.textContent.indexOf('读取中') === 0) {
+        s.textContent = '脚本没能启动（大概率被框架策略拦了）。点「刷新」重试；仍如此请把窗口控制台里的报错发来。'
+      }
+    }, 7000)
+  </script>
+</body>
+</html>

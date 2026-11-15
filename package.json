@@ -1,0 +1,65 @@
+{
+  "name": "@magpie-community/page-zcode-claim",
+  "version": "0.1.0",
+  "description": "ZCode 领卡中心：列出每个账号可领的赠卡，点一下用官方阿里云无痕组件取票并携票领取。ZCode gift-plan claim center: list what each account can claim, then claim it with the official Aliyun captcha ticket taken in this window.",
+  "author": "page-zcode-claim contributors",
+  "type": "module",
+  "main": "./index.mjs",
+  "files": [
+    "index.mjs",
+    "lib",
+    "page",
+    "ui",
+    "testdata",
+    "LICENSE",
+    "README.md"
+  ],
+  "engines": {
+    "magpie": ">=0.1.3800"
+  },
+  "scripts": {
+    "start": "node lib/serve.mjs"
+  },
+  "keywords": [
+    "magpie",
+    "magpie-page",
+    "magpie-plugin",
+    "zcode",
+    "z.ai",
+    "gift-plan",
+    "claim",
+    "captcha"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/magpie-community/plugins.git",
+    "directory": "packages/page-zcode-claim"
+  },
+  "magpie": {
+    "name": "ZCode Claim",
+    "summary": {
+      "en": "ZCode's gift plans, per account: what the marketing feed says you can claim, claimed with the Aliyun verification the ZCode app itself passes — you click the slider once, the ticket is used at once.",
+      "zh": "ZCode 的赠卡，按账号列出来：营销 feed 说能领的都在这里，用 ZCode 客户端自己那套阿里云验证取票——你点一下滑块，票立刻用掉。"
+    },
+    "page": {
+      "title": "ZCode Claim",
+      "titles": {
+        "en": "ZCode Claim",
+        "zh": "ZCode 领卡中心",
+        "zh-TW": "ZCode 領卡中心"
+      },
+      "file": "page/index.html",
+      "icon": "page/icon.svg",
+      "service": {
+        "port": 3501,
+        "option": "port"
+      }
+    },
+    "options": {
+      "port": 3501
+    },
+    "permissions": [],
+    "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+PHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiByeD0iMTQiIGZpbGw9IiMwZjE3MmEiLz48cGF0aCBkPSJNMjAgMjJoMjRNMjAgMzJoMjRNMjAgNDJoMTRNMTIgMTZoNDB2MzJIMTJ6IiBmaWxsPSJub25lIiBzdHJva2U9IiMzOGJkZjgiIHN0cm9rZS13aWR0aD0iMyIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+PGNpcmNsZSBjeD0iNDYiIGN5PSI0MiIgcj0iNSIgZmlsbD0iIzM4YmRmOCIvPjwvc3ZnPg=="
+  }
+}

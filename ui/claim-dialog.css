@@ -1,0 +1,104 @@
+/* 领卡弹窗样式：变量全部走 magpie 的 --magpie-*，深浅色跟随宿主 */
+.zclaim-dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483000;
+  display: grid;
+  place-items: center;
+  font: 13px/1.6 "Aptos", "Segoe UI Variable", "Noto Sans SC", "PingFang SC", sans-serif;
+  color: var(--magpie-fg, CanvasText);
+}
+.zclaim-mask {
+  position: absolute;
+  inset: 0;
+  background: rgb(0 0 0 / 42%);
+  animation: zclaim-fade 120ms ease-out;
+}
+.zclaim-panel {
+  position: relative;
+  width: min(420px, calc(100vw - 32px));
+  padding: 18px 18px 14px;
+  border: 1px solid var(--magpie-line, rgb(128 128 128 / 28%));
+  border-radius: 12px;
+  background: var(--magpie-bg, Canvas);
+  box-shadow: 0 18px 48px rgb(0 0 0 / 28%);
+  animation: zclaim-rise 140ms ease-out;
+}
+.zclaim-panel header {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  margin-bottom: 6px;
+}
+.zclaim-panel header b { font-size: 14px; font-weight: 600; }
+.zclaim-account {
+  margin-left: auto;
+  overflow: hidden;
+  color: var(--magpie-muted, GrayText);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.zclaim-plan {
+  margin: 0 0 10px;
+  color: var(--magpie-muted, GrayText);
+  font-size: 12px;
+}
+/* SDK 需要一个真有尺寸的挂载点，别隐藏、别 0 高度 */
+.zclaim-mount {
+  min-height: 84px;
+  margin-bottom: 10px;
+  padding: 6px;
+  border: 1px dashed var(--magpie-line, rgb(128 128 128 / 28%));
+  border-radius: 8px;
+}
+.zclaim-start,
+.zclaim-cancel {
+  padding: 6px 14px;
+  border: 1px solid var(--magpie-line, rgb(128 128 128 / 28%));
+  border-radius: 8px;
+  background: var(--magpie-surface, rgb(128 128 128 / 8%));
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.zclaim-start { width: 100%; margin-bottom: 10px; }
+.zclaim-start:disabled { cursor: default; opacity: 0.55; }
+.zclaim-status { min-height: 20px; margin: 0 0 8px; }
+.zclaim-status.error { color: var(--magpie-danger, #d33); }
+.zclaim-status[aria-busy="true"]::after {
+  content: "";
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-left: 8px;
+  border: 2px solid currentcolor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: zclaim-spin 700ms linear infinite;
+  vertical-align: -1px;
+}
+.zclaim-progress {
+  max-height: 132px;
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  overflow: auto;
+  border-radius: 8px;
+  background: var(--magpie-surface, rgb(128 128 128 / 8%));
+  font-size: 12px;
+  list-style: none;
+}
+.zclaim-progress li + li { margin-top: 4px; }
+.zclaim-panel footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+@keyframes zclaim-fade { from { opacity: 0; } }
+@keyframes zclaim-rise { from { opacity: 0; transform: translateY(6px) scale(0.99); } }
+@keyframes zclaim-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .zclaim-mask,
+  .zclaim-panel { animation: none; }
+  .zclaim-status[aria-busy="true"]::after { animation-duration: 2s; }
+}
