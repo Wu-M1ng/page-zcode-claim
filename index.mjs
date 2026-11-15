@@ -6,7 +6,7 @@ let started = null
 
 export default {
   id: 'magpie-zcode-claim',
-  // server(input, options)：input 由 magpie 给（directory=配置目录、client.auth=账号的读写口），
+  // server(input, options)：input 由 magpie 给（directory=配置目录），
   // options 是插件页面上保存的选项。
   server: async (input, options) => {
     if (!started) {
@@ -19,7 +19,6 @@ export default {
         port,
         host: options?.bind,
         directory: input?.directory,
-        auth: input?.client?.auth,
         options: { option: input?.magpie?.option },
       }).catch((error) => {
         started = null

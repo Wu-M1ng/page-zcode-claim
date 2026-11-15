@@ -1,6 +1,6 @@
-# @magpie-community/page-zcode-claim · ZCode 领卡中心
+# page-zcode-claim · ZCode 领卡中心
 
-magpie 的一个页面插件：把 ZCode（z.ai / 智谱）每个账号**能领的赠卡**列出来，点一下，用 ZCode 客户端自己那套
+magpie 的一个页面插件（个人项目，非 magpie 社区包）：把 ZCode（z.ai / 智谱）每个账号**能领的赠卡**列出来，点一下，用 ZCode 客户端自己那套
 阿里云无痕验证取票，票到手立刻携票领取。
 
 ```text
@@ -13,12 +13,20 @@ magpie 的一个页面插件：把 ZCode（z.ai / 智谱）每个账号**能领�
 
 ## 装
 
+从仓库装（magpie 支持 git 地址）：
+
 ```sh
-magpie plugin add @magpie-community/page-zcode-claim
+magpie plugin add https://github.com/<owner>/page-zcode-claim
 ```
 
-或在 magpie 的 `~/.config/magpie/plugins/package.json` 里加 `"file:<本包路径>"` 后重启 magpie。
-打开侧栏 Plugins › ZCode Claim。
+或者本地路径 / 开发时直接指到目录：
+
+```sh
+magpie plugin add ./page-zcode-claim
+```
+
+也可以手动在 magpie 的 `~/.config/magpie/plugins/package.json` 里加 `"file:<本包路径>"`，再重启 magpie。
+装完打开侧栏 Plugins › ZCode Claim。
 
 ## 选项
 
@@ -87,7 +95,7 @@ magpie plugin options page-zcode-claim '{"port":3527,"bind":"0.0.0.0"}'
 | `429` / `code 3002` | 请求过于频繁 → 停手，按 `Retry-After` 退避（见下） |
 | 回包读不懂 | 只算「没确认」，绝不当成功 |
 
-## 五个踩过的坑（改代码前先看）
+## 六个踩过的坑（改代码前先看）
 
 0. **带路页不要 `await` 桥接**。`magpie.ready` 在没有窗口的场景（服务器、magpie web）可能**永远不 resolve**，
    于是页面永远停在「正在连接本地领卡服务…」——不是策略拦的，是自己等死的。桥接调用一律限时，
@@ -106,7 +114,10 @@ magpie plugin options page-zcode-claim '{"port":3527,"bind":"0.0.0.0"}'
 3. **页面必须垫 cookie / localStorage**。magpie 的页面框架是 `sandbox="allow-scripts"`，文档是 opaque origin，
    `document.cookie` 与 `localStorage` 都会抛 `SecurityError`；SDK 两样都用。`ui/sandbox-shim.js` 必须在
    SDK 之前加载（`ui/index.html` 里已排在 `app.js` 前）。
-4. **拒收假票**。SDK 初始化失败时仍会 fire 一个 76 字符的 `success`，内容只有 `{certifyId, sceneId, isSign}`；
+4. **领取按钮不是 `buttons[0]`**。真实抓包里 `banner.buttons[0]` 是「关闭」，`claim_zcode_plan`
+   在第二个，卡名与权益挂在同一条 delivery 的 `banner.background.args.zcode_plan`（`ends_at` 是**秒**）。
+   只看第一个按钮就会得出「没有可领卡」的假结论。
+5. **拒收假票**。SDK 初始化失败时仍会 fire 一个 76 字符的 `success`，内容只有 `{certifyId, sceneId, isSign}`；
    真票约 280 字符且带 `securityToken`。`lib/server.mjs` 的 `ticketOf()` 会挡掉假票，否则白烧一次领取机会。
 
 ## 为什么取票可能需要你点一下
@@ -114,7 +125,10 @@ magpie plugin options page-zcode-claim '{"port":3527,"bind":"0.0.0.0"}'
 阿里云的无痕验证会按设备/出口判风险。同一台机器上，自动 `startTracelessVerification()` 常被判 `F001`（风控拒绝），
 而人工点一下滑块就能出真票。所以弹窗**自动试一次，不通就停下来等你**，不自动重试、不循环。
 
-## 上游异常怎么处理（和 `@magpie-community/opencode-zcode-auth` 同一套判断）
+## 上游异常怎么处理
+
+判断口径参考了社区包 `@magpie-community/opencode-zcode-auth`（那个是社区包，本包不是）：
+
 
 **「没有」和「读不懂」严格分开**。`deliveries` 字段缺失 = 上游确实没有投递；字段存在但不是数组、或者整条 feed 结构不对 = **读不懂**，页面会说「上游回包读不懂，没确认是否真的没有卡」，不会冒充「当前没有可领的卡」。这两种在 `unread` 里也各带原因。
 
@@ -126,16 +140,6 @@ magpie plugin options page-zcode-claim '{"port":3527,"bind":"0.0.0.0"}'
 
 **边缘防火墙**。本机 IP 被厂商的边缘防火墙拦时，上游回的是 HTML 拦截页而不是 JSON。这种情况识别为「IP 被拦」并说清楚，不当成解析失败。
 
-## 自测用的真实样本
-
-`testdata/touch-1030-wk.json`、`testdata/client-configs-1107.json` 是从真实流量里留下的原样抓包（10-30、11-07），解析器的回归就靠它们。用它们当假上游：
-
-```sh
-ZCODE_CLAIM_BASE=http://127.0.0.1:3600 MAGPIE_CONFIG_DIR=./tmp-cfg node lib/serve.mjs --port 3502
-```
-
-样本里有个细节值得记住：`banner.buttons[0]` 是「关闭」，领取按钮在第二个 —— 所以领取按钮必须遍历整条 delivery 去找，不能只看第一个。
-
 ## 票据约束
 
 单次使用、90 秒内有效（`F008` / `F018` / `F019` = 重放或过期）。因此：一卡一票、出票即提交、票不落盘、不进日志。
@@ -144,39 +148,46 @@ ZCODE_CLAIM_BASE=http://127.0.0.1:3600 MAGPIE_CONFIG_DIR=./tmp-cfg node lib/serv
 
 插件不跑定时任务：营销 feed 由你点「领取」/「刷新」时才读，避免把账号打进 `429` / `F010` / `F011`。
 
-## 发布
+## 发布（自己的仓库 / 自己的 npm）
 
-**提到社区仓库**（`@magpie-community/plugins`，放 `packages/page-zcode-claim`）：包名、`repository`
-都不用改，推 `main` 触发版本发布，并在 `registry.json` 加一条：
+这是个人项目，**不属于 magpie 社区**，所以发布也只走自己的仓库。上传前把三处身份改掉：
 
-```json
-{
-  "package": "@magpie-community/page-zcode-claim",
-  "name": "ZCode Claim",
-  "kind": "page",
-  "community": true,
-  "summary": {
-    "en": "ZCode's gift plans, per account: what the marketing feed says you can claim, claimed with the Aliyun verification the ZCode app itself passes — you click the slider once, the ticket is used at once.",
-    "zh": "ZCode 的赠卡，按账号列出来：营销 feed 说能领的都在这里，用 ZCode 客户端自己那套阿里云验证取票——你点一下滑块，票立刻用掉。"
-  }
-}
+```jsonc
+// package.json
+"name": "page-zcode-claim",          // 或你自己的 scope：@<你的npm名>/page-zcode-claim
+"author": "<你的名字>",
+"repository": { "type": "git", "url": "git+https://github.com/<owner>/page-zcode-claim.git" }
 ```
 
-**发到自己的仓库/npm**：改 `name`（`@magpie-community/*` 这个 scope 不属于你）、`repository.url`、
-`LICENSE` 里的版权人，其余不用动；`magpie` 字段原样保留，magpie 靠它识别页面。
+```text
+// LICENSE 第 3 行
+Copyright (c) 2026 <你的名字>
+```
+
+`magpie` 字段原样保留（magpie 靠它识别页面、`page.service`、选项和图标），`files` 也别动。
+从仓库装的人不需要 npm 发布；要发布 npm 的话 `npm publish` 即可，包名不要用 `@magpie-community/*`
+（那个 scope 不是你的）。
+
+**不要**去改 `registry.json` 或加 `"community": true` —— 那是社区仓库的入口，只收社区自己的包。
 
 ## 安全
 
-- 服务只监听 `127.0.0.1`，`Host` 只认本进程实际端口上的 `127.0.0.1` / `localhost`（挡 DNS 重绑定）。
+- 默认只监听 `127.0.0.1`（`bind` 可以改，见上）。`Host` 必须落在「本进程实际端口的 `127.0.0.1` / `localhost`」、
+  「端口就是本进程监听端口」或「带 `x-forwarded-*` 头」三者之一，其余 403（挡 DNS 重绑定）。
 - 页面框架是不透明来源，`Origin` 是字面量 `null`：API 一律要每次启动随机生成、只注入本实例 HTML 的页面口令。
+- **插件不写凭据**：只读 `plugin-auth.json`，也没有任何接口接受页面提交的 jwt（早先那个导入通道已删掉）。
 - 领取记录写在 `<配置目录>/zcode-claim/claim-log.jsonl`（0600），不含 jwt、不含票据。
 
 ## 独立调试
 
 ```sh
-node lib/serve.mjs --port 3502      # 打开 http://127.0.0.1:3502/ 即可，口令已注入页面
-node lib/serve.mjs --port 3502 --key  # 需要命令行调接口时才把口令打出来
+node lib/serve.mjs --port 3502                 # 打开 http://127.0.0.1:3502/ 即可，口令已注入页面
+node lib/serve.mjs --port 3502 --key           # 需要命令行调接口时才把口令打出来
+node lib/serve.mjs --port 3502 --host 0.0.0.0  # 让局域网/反代访问（调试服务器上的页面时用）
 ```
+
+独立调试要 **Node ≥ 18**（用了 `AbortSignal.timeout`、`Array.at`、`??=`）。在 magpie 里跑的是它自己的
+Bun 宿主，不受这条限制。
 
 要把整条链路在没有真实活动卡的情况下跑一遍，用假上游：
 
@@ -187,14 +198,28 @@ ZCODE_CLAIM_BASE=http://127.0.0.1:3600 MAGPIE_CONFIG_DIR=./tmp-cfg node lib/serv
 `ZCODE_CLAIM_BASE` 只改上游基址，不改变任何领取语义；`MAGPIE_CONFIG_DIR` 让你用一份假账号，
 不会碰真实登录信息，也不会写进真实的领取记录。
 
+## 验证到哪一步
+
+**实测过（真 Chromium + 真上游，用开发者本地的抓包样本和假上游跑回归）**：阿里云组件在 magpie 页面里出票（真票约 280 字符）；同一张卡
+无票提交被上游回 `3007`、带真票提交通过验证闸门（回 `1001 target not found`，说明票被接受了）；
+国内站（bigmodel）账号走同一套业务接口；magpie web / 反代下的 CSP 与 CORS；端口被占时的顺延。
+
+**还没遇到**：真实的 `code 0` 领取成功 —— 写这段的时候营销 feed 里没有 `ZCODE GLOBAL BUILD` /
+`ZCODE WEEKEND BUILD` 的卡。等有卡时第一次领取就能确认，`code 0` 与 `code 200` 都按成功处理。
+
+**明确没做**：`1001` 时按卡名从新 feed 自动换 `plan_id` 重试；邀请奖励（`/api/v1/incentive/referral/summary`）
+那条来源；jwt 过期自动续期（过期就显示「ZCode 登录已过期」，去 magpie 重新登录）。
+
 ## 目录
+
+仓库里只有插件本体：开发时用的假上游、状态矩阵和真实抓包样本不随仓库发布。
 
 ```text
 index.mjs           宿主入口 export default { id, server(input, options) }
 lib/server.mjs      HTTP 服务、票据校验、路由、静态页面
-lib/store.mjs       账号来源（plugin-auth.json 只读 / 本插件导入）
+lib/store.mjs       账号来源（plugin-auth.json 只读）
 lib/zcode.mjs       上游四个接口：验证场景 / 营销 feed / 余额预览 / 携票领取
-page/               带路页：把框架导航到 127.0.0.1:<port>
-ui/                 真页面：账号列表、领取记录、导入、取票弹窗
+page/               带路页：把框架导航到服务（bridge 不可用时也不卡）
+ui/                 真页面：账号列表、领取记录、取票弹窗
 ui/sandbox-shim.js  cookie / localStorage 垫片（必须最先加载）
 ```
