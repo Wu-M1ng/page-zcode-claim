@@ -2,6 +2,9 @@
 // 只跟自己这个服务说话（同源回环 + 页面口令），不依赖 magpie 的读取接口。
 import { openClaimDialog } from './claim-dialog.js'
 
+// 这个标记和 index.html 里的兜底定时器配合：脚本真跑起来了，兜底就不吭声
+window.__zcodeClaimApp = true
+
 const KEY = document.querySelector('meta[name="zcode-claim-key"]')?.getAttribute('content') || ''
 const $ = (id) => document.getElementById(id)
 
@@ -23,7 +26,10 @@ const state = {
 // 口令放 query、body 用 text/plain：两个都是「简单请求」，不触发预检。
 // 在 magpie 的不透明来源框架里，带自定义头的预检会被拦，表现就是一直停在「读取中…」。
 async function api(path, init = {}) {
-  const url = path + (path.includes('?') ? '&' : '?') + 'k=' + encodeURIComponent(KEY)
+  // 按文档地址算，而不是写成 /api/...：magpie web 把服务挂在路径前缀下时，
+  // 以 / 开头的绝对路径会跑出前缀，页面上就是「读取失败」。
+  const target = new URL(String(path).replace(/^\/+/, ''), document.baseURI)
+  const url = target.pathname + target.search + (target.search ? '&' : '?') + 'k=' + encodeURIComponent(KEY)
   // body 传对象时要自己序列化：fetch 只认字符串，否则会变成 "[object Object]"
   const payload = init.body && typeof init.body === 'object' ? JSON.stringify(init.body) : init.body
   const response = await fetch(url, {

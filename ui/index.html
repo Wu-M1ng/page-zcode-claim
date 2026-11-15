@@ -74,12 +74,22 @@
   <script src="sandbox-shim.js"></script>
   <script type="module" src="app.js"></script>
   <script>
-    // 兜底：框架里的 CSP 或模块加载出问题时，页面不会永远停在「读取中…」
+    // 兜底：框架里的 CSP / CORS 把文件拦了时，页面不会永远停在「读取中…」，
+    // 而且要能说清是垫片没到、还是 app.js 没跑 —— 这两个原因的处理方式不一样。
     setTimeout(function () {
-      var s = document.getElementById('subtitle')
-      if (s && s.textContent.indexOf('读取中') === 0) {
-        s.textContent = '脚本没能启动（大概率被框架策略拦了）。点「刷新」重试；仍如此请把窗口控制台里的报错发来。'
+      var said = document.getElementById('subtitle')
+      if (!said || said.textContent.indexOf('读取中') !== 0) return
+      if (!window.__zcodeClaimBoot) {
+        said.textContent = 'sandbox-shim.js 没加载（文件被框架策略拦了）。点「刷新」重试；仍如此请把窗口控制台里的报错发来。'
+        return
       }
+      if (!window.__zcodeClaimApp) {
+        said.textContent = 'app.js 没能执行（模块被 CSP 或 CORS 拦，或被缓存拦住）。控制台里查 ' +
+          new URL('app.js', document.baseURI).href + ' 这条请求的状态。'
+        return
+      }
+      said.textContent = '脚本跑起来了但没取到数据，可能是接口被拦。控制台里看 ' +
+        new URL('api/accounts', document.baseURI).href + ' 的返回。'
     }, 7000)
   </script>
 </body>

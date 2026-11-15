@@ -1,7 +1,7 @@
 // 带路页：把 magpie 的框架导航到本插件的页面服务。
 // 页面框架的 CSP 是 connect-src 'none'，只能直接跳转，不能先探测。
 (async () => {
-  const DEFAULT_PORT = 3501
+  const DEFAULT_PORT = 3527
   const words = {
     en: {
       title: 'ZCode Claim',

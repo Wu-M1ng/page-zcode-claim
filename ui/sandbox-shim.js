@@ -7,6 +7,8 @@
 //   不装垫片 → cookie:"throws:SecurityError" localStorage:"throws:SecurityError"，init 失败
 //   装垫片   → cookie:"string" localStorage:"object"，SDK 正常取到真票（280 字符）
 ;(() => {
+  // 给 index.html 的兜底定时器看的：垫片自己有没有加载成功
+  window.__zcodeClaimBoot = true
   if (window.__zcodeClaimShimmed) return
   window.__zcodeClaimShimmed = true
 

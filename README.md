@@ -24,9 +24,19 @@ magpie plugin add @magpie-community/page-zcode-claim
 
 | 选项 | 默认 | 说明 |
 | --- | --- | --- |
-| `port` | `3501` | 页面服务端口（只在 127.0.0.1 监听） |
+| `port` | `3527` | 页面服务端口（只在 127.0.0.1 监听） |
 
-页面通过 `magpie.page.service` 声明的端口启动服务，所以**端口被占用时页面会连不上**。
+页面按 `magpie.page.service` 声明的端口启动服务。**声称的端口被占用时**：先原地重试一次（上一次的服务进程
+常常还在退，等一秒它就走），还占着就顺着往后找最多 15 个端口，服务照常起来，日志里写明实际端口 ——
+这时候请把选项改成那个端口，带路页只能按声明的端口跳。
+
+端口按安装改：
+
+```sh
+magpie plugin options page-zcode-claim '{"port":3528}'   # 名字也可以是短名 page-zcode-claim
+```
+
+也可以编辑 magpie 配置目录下 `plugins.json` 里这一项的 `"options"`。改完重启插件（`on/off` 或重载）生效。
 
 ## 账号从哪来
 
@@ -51,16 +61,22 @@ magpie plugin add @magpie-community/page-zcode-claim
 | `429` / `code 3002` | 请求过于频繁 → 停手，按 `Retry-After` 退避（见下） |
 | 回包读不懂 | 只算「没确认」，绝不当成功 |
 
-## 三个踩过的坑（改代码前先看）
+## 四个踩过的坑（改代码前先看）
 
-1. **CSP 必须放行 `*.aliyuncs.com`**。SDK 的上报域名是 `aliyuncs.com`（多一个 s），漏掉它的症状不是报错，
+1. **CSP 里 `'self'` 和完整源一个都不能少**。页面框架是 `sandbox="allow-scripts"`，桌面窗口里 `'self'`
+   可能什么都匹配不上，所以策略要写服务的完整源；而走 magpie web（局域网、Docker、反代）时，
+   magpie 会把响应头里**每个 `'self'` 补成服务的真实地址**（`<meta>` 里的不补）。只写完整源的后果，
+   在 web 模式下就是**样式全丢 + 脚本不执行**：页面只剩无样式的静态骨架，看着像「脚本没能启动」。
+   `lib/server.mjs` 的 `cspFor()` 现在两者都写，并按请求的 `Host` / `x-forwarded-*` 再推一份源，
+   所以 `Host`、`Origin` 的校验也跟着放宽到「页面自己的源」——反代下 API 才不会齐刷刷 403。
+2. **CSP 必须放行 `*.aliyuncs.com`**。SDK 的上报域名是 `aliyuncs.com`（多一个 s），漏掉它的症状不是报错，
    而是「点开始验证没反应」——初始化被拦、实例建不起来。命中域名：`no8xfe.captcha-open.aliyuncs.com`、
    `*.captcha-open-b.aliyuncs.com`、`upload.captcha-open.aliyuncs.com`、`cloudauth-device-dualstack.cn-shanghai.aliyuncs.com`、
    `cn-shanghai.device.saf.aliyuncs.com`（脚本本身在 `o.alicdn.com` / `g.alicdn.com`）。
-2. **页面必须垫 cookie / localStorage**。magpie 的页面框架是 `sandbox="allow-scripts"`，文档是 opaque origin，
+3. **页面必须垫 cookie / localStorage**。magpie 的页面框架是 `sandbox="allow-scripts"`，文档是 opaque origin，
    `document.cookie` 与 `localStorage` 都会抛 `SecurityError`；SDK 两样都用。`ui/sandbox-shim.js` 必须在
    SDK 之前加载（`ui/index.html` 里已排在 `app.js` 前）。
-3. **拒收假票**。SDK 初始化失败时仍会 fire 一个 76 字符的 `success`，内容只有 `{certifyId, sceneId, isSign}`；
+4. **拒收假票**。SDK 初始化失败时仍会 fire 一个 76 字符的 `success`，内容只有 `{certifyId, sceneId, isSign}`；
    真票约 280 字符且带 `securityToken`。`lib/server.mjs` 的 `ticketOf()` 会挡掉假票，否则白烧一次领取机会。
 
 ## 为什么取票可能需要你点一下
