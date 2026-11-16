@@ -134,6 +134,10 @@ export async function openClaimDialog({ api, account, plans, copy = {} }) {
     settledResult = true
     resolveAll(value)
   }
+  // solve() 的 resolve 也必须被兑现。只 resolve 外层 outcome 的后果是：主循环还卡在
+  // `await solve()` 上，`finally` 永远不跑，全屏遮罩留在页面上 —— 页面的症状就是
+  // 「这个账号一直显示领取中，别的按钮也点不动」。
+  let releaseSolve = null
 
   const state = (message, { error = false, busy = false } = {}) => {
     ui.status.textContent = message
@@ -148,19 +152,20 @@ export async function openClaimDialog({ api, account, plans, copy = {} }) {
     ui.root.remove()
     window.removeEventListener('pagehide', onLeave)
     document.removeEventListener('keydown', onKey)
+    // 叫醒卡在 await solve() 的主循环。set 到 null 再调，重复进来不会有副作用。
+    const release = releaseSolve
+    releaseSolve = null
+    release?.(null)
   }
   const onLeave = () => { teardown(); finish({ ok: false, code: 'canceled', message: '已取消' }) }
   const cancel = () => onLeave()
-  // 超时不做静默关闭：把「验证会话过期」摆在弹窗里，人还能看见发生了什么，自己关掉。
+  // 超时就走正常收尾：票过期了留着弹窗也没用，而「留在弹窗里给人看」正是
+  // 上面那个死锁的入口。提示信息不丢 —— claim() 的 result.code === 'expired'
+  // 分支会在卡片上写明「验证会话过期，重新点领取会取一张新票」。
   const expire = () => {
     if (closed) return
-    clearTimers()
-    try { instance?.destroy?.() } catch { /* 可能已销毁 */ }
-    instance = null
-    ui.mount.replaceChildren()
-    if (ui.start) ui.start.disabled = true
-    state('验证会话过期，关掉后重新点「领取」。', { error: true })
     finish({ ok: false, code: 'expired', message: '验证会话过期' })
+    teardown()
   }
   ui.root.querySelectorAll('[data-cancel]').forEach((node) => node.addEventListener('click', cancel))
   window.addEventListener('pagehide', onLeave)
@@ -194,7 +199,14 @@ export async function openClaimDialog({ api, account, plans, copy = {} }) {
     let ready = false
     let settled = false
     const live = () => !closed && current === epoch && !settled
-    const settle = (value) => { if (!live()) return; settled = true; resolve(value) }
+    // 交给 teardown 的统一句柄：关窗/超时时它会把这里叫醒
+    releaseSolve = resolve
+    const settle = (value) => {
+      if (!live()) return
+      settled = true
+      releaseSolve = null
+      resolve(value)
+    }
 
     const toManual = (message, value) => {
       if (!live()) return

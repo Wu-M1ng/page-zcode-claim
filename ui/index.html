@@ -23,6 +23,11 @@
       <p class="hero-sub" id="subtitle">读取中…</p>
     </div>
     <div class="hero-actions">
+      <!-- 每日自动活跃的开关：状态和今天的时刻都写在这个按钮上 -->
+      <button type="button" class="ghost switch" id="auto-active" aria-pressed="false" hidden>
+        <span class="led" aria-hidden="true"></span>
+        <span id="auto-active-text">每日活跃</span>
+      </button>
       <button type="button" class="ghost" id="refresh">
         <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
           <path d="M20 12a8 8 0 1 1-2.6-5.9"/>

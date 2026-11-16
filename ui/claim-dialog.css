@@ -2,7 +2,14 @@
 .zclaim-dialog {
   position: fixed;
   inset: 0;
-  z-index: 2147483000;
+  /*
+   * ⚠ 这个数不能随便调大。阿里云验证码 SDK 的 popup 容器实测写死
+   * `z-index: 10000001`（AliyunCaptcha.js 里唯一一处 z-index）。
+   * 本层只要高过它，验证弹窗就被压在这张全屏遮罩下面 —— 症状是
+   * 「点完领取弹窗出来了，但验证码点不到」，人只能取消，整轮领取作废。
+   * 999999 仍然高出页面自身（最高 .hero 的 6、.toast 的 20）三个数量级。
+   */
+  z-index: 999999;
   display: grid;
   place-items: center;
   font: 13px/1.6 "Aptos", "Segoe UI Variable", "Noto Sans SC", "PingFang SC", sans-serif;

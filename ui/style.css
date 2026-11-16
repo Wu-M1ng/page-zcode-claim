@@ -159,6 +159,33 @@ button.ghost.is-done {
   color: color-mix(in srgb, var(--ok, #3fbf7f) 82%, var(--magpie-fg, #fff));
 }
 
+/* 「活跃 ✗」：今天报过了但没成 —— 一天只报一次不会重试，得让人一眼看见。
+   文案里也带 ✗，不只靠颜色。 */
+button.ghost.is-failed {
+  border-color: color-mix(in srgb, var(--bad, #d8504a) 45%, transparent);
+  color: color-mix(in srgb, var(--bad, #d8504a) 88%, var(--magpie-fg, #fff));
+}
+
+/*
+ * 每日自动活跃的开关（#accounts 的顶栏旁）。
+ * 用一个小灯 + 文案：单看颜色对色弱不友好，文案里始终写着开/关和今天的时刻。
+ */
+button.switch { gap: 7px; }
+button.switch .led {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--magpie-muted, GrayText);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--magpie-muted, GrayText) 16%, transparent);
+  transition: background 160ms ease, box-shadow 160ms ease;
+}
+button.switch.is-on .led {
+  background: var(--ok, #17a06a);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok, #17a06a) 22%, transparent);
+}
+button.switch:disabled { cursor: default; opacity: 0.55; }
+
 button svg { flex: none; }
 
 /* 按钮里的转圈：is-busy 时把文字藏起来只留圈 */
@@ -261,6 +288,18 @@ main {
   flex-direction: column;
   gap: 6px;
   align-items: flex-end;
+}
+
+/*
+ * 全局领取锁的视觉面（app.js 的 lockAll）。锁在容器上而不是按钮上：
+ * 卡片会被 refreshCard() 整张 replaceWith，锁在按钮上会跟着旧节点一起消失。
+ * 只用 pointer-events + 透明度，不去动 disabled —— 新渲染出来的按钮
+ * 本来就没有 disabled，靠属性锁不住。
+ */
+#accounts.is-busy .card-side button[data-claim] {
+  opacity: 0.55;
+  pointer-events: none;
+  cursor: default;
 }
 
 /* ---------- 可领卡 chips ---------- */
@@ -500,7 +539,14 @@ main {
   padding: 9px 16px;
   border: 1px solid var(--line);
   border-radius: 11px;
-  background: var(--magpie-surface, #2a2a2a);
+  /*
+   * 这里之前是 var(--magpie-surface, #2a2a2a) 且没设 color。宿主没定义
+   * --magpie-surface 时（大多数情况下没有）背景就是深灰，而文字沿用 body 的
+   * var(--magpie-fg, CanvasText) —— 浅色窗口下 = 深灰底 + 黑字，看上去“一块黑”。
+   * 用 Canvas / CanvasText 这对系统色：自动跟随浅色/深色，和 .zclaim-panel 一致。
+   */
+  background: var(--magpie-bg, Canvas);
+  color: var(--magpie-fg, CanvasText);
   box-shadow: 0 14px 34px rgb(0 0 0 / 22%);
   font-size: 12.5px;
   translate: -50% 0;

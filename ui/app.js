@@ -21,6 +21,10 @@ const state = {
   known: new Map(), // 账号 id → { plans, at }，点过「领取」才知道
   done: new Map(), // 账号 id → Set(已领到的 plan_id)
   busy: false,
+  // 「今日已领」由服务端数（/api/log 的 claimed_today）。页面只拉最近 10 条，
+  // 从这 10 条里数会让今天领了 15 张的号只报 5 张。
+  claimedToday: null,
+  settings: null, // { auto_active, auto_locked, auto_at }
 }
 
 // 口令放 query、body 用 text/plain：两个都是「简单请求」，不触发预检。
@@ -69,6 +73,15 @@ const say = (message, title) => {
 function busyButton(button, on) {
   button.disabled = on
   button.classList.toggle('is-busy', on)
+}
+
+// state.busy 是全局锁（同一时刻只允许一轮领取：两个验证弹窗会抢层级），
+// 所以视觉上也把所有「领取」按钮一起锁住 —— 否则点了别的账号毫无反应，
+// 看起来就像页面死了。锁挂在 #accounts 容器上：卡片会被 refreshCard 整张换掉，
+// 但容器不会，class 因此不会丢。
+function lockAll(on) {
+  const host = $('accounts')
+  if (host) host.classList.toggle('is-busy', on)
 }
 
 // 状态行：一句话 + 可选的小按钮（比如「仍要查询」）
@@ -191,9 +204,10 @@ function paintStats() {
     known += 1
   }
   countUp($('stat-claimable'), known ? claimable : null)
-  const today = new Date().setHours(0, 0, 0, 0)
-  const claimed = state.logRows.filter((row) => row.kind === 'claim' && row.ok && row.at >= today).length
-  countUp($('stat-claimed'), state.logRows.length ? claimed : null)
+  const claimed = Number.isFinite(state.claimedToday)
+    ? state.claimedToday
+    : state.logRows.filter((row) => row.kind === 'claim' && row.ok && row.at >= new Date().setHours(0, 0, 0, 0)).length
+  countUp($('stat-claimed'), state.claimedToday != null || state.logRows.length ? claimed : null)
 }
 
 const isDone = (planId, accountId) => {
@@ -292,16 +306,33 @@ function rowFor(account) {
   const side = el('div', 'card-side')
   const button = el('button', 'primary', info && info.plans.length ? '再查一次' : '领取')
   button.type = 'button'
-  button.addEventListener('click', () => { void claim(account, button, hint) })
+  // data-claim：容器级锁定只认这个标记。jwt 失效那张卡上的「领取」也带 primary，
+  // 但不能被解开 —— 它靠自己的 disabled 属性钉死。
+  button.dataset.claim = '1'
+  // data-force：「再查一次」就该真重查。之前按钮文案和请求参数对不上，
+  // 点了还是读缓存，用户看到的是「再查一次也还是那句话」。
+  button.dataset.force = info && info.plans.length ? '1' : ''
+  button.addEventListener('click', () => {
+    void claim(account, button, hint, { force: button.dataset.force === '1' })
+  })
   side.append(button)
 
   // 手动补报活跃：跟领取里的自动上报同一个接口，只是不受「今天已报」限制
-  const activeButton = el('button', 'ghost' + (account.activation_today ? ' is-done' : ''),
-    account.activation_today ? '活跃 ✓' : '活跃')
+  // activation_today 只说「今天报过」，activation_ok 才是「报成了没有」——
+  // 自动活跃失败也照样标今天已报（一天一次，不重试），所以两个必须分开显示。
+  const actDone = Boolean(account.activation_today)
+  const actOk = account.activation_ok !== false
+  const actState = actDone ? (actOk ? 'ok' : 'failed') : 'off'
+  const ACT_LABEL = { off: '活跃', ok: '活跃 ✓', failed: '活跃 ✗' }
+  const ACT_CLASS = { off: '', ok: ' is-done', failed: ' is-failed' }
+  const activeButton = el('button', 'ghost' + ACT_CLASS[actState], ACT_LABEL[actState])
   activeButton.type = 'button'
-  activeButton.title = account.activation_today
-    ? '今天已补报过 app_launch + app_daily_active。再点会再报一次。'
-    : '补报一次 app_launch + app_daily_active，运营侧据此发放领取资格'
+  const actTitles = {
+    off: '补报一次 app_launch + app_daily_active，运营侧据此发放领取资格',
+    ok: '今天已补报过 app_launch + app_daily_active（自动或手动都算）。再点会再报一次。',
+    failed: `今天的上报没成功：${account.activation_note || '原因见下方记录'}。点一下重试。`,
+  }
+  activeButton.title = actTitles[actState]
   activeButton.addEventListener('click', () => { void reportActivation(account, activeButton, hint) })
   side.append(activeButton)
 
@@ -373,7 +404,10 @@ async function reportActivation(account, button, hint) {
 async function claim(account, button, hint, { force = false } = {}) {
   if (state.busy) return
   state.busy = true
-  busyButton(button, true)
+  // 锁在 #accounts 容器上而不是按钮上：refreshCard() 会把整张卡片 replaceWith 掉，
+  // 之前锁住的 button 随之变成游离节点，「解锁」也就白做了 —— 页面上那个按钮
+  // 看起来永远是「领取中」。容器不会被替换，class 一直在。
+  lockAll(true)
   setHint(hint, { text: force ? '正在重新查询…' : '正在读取可领卡…' })
   const again = (label = '仍要查询') => ({
     label,
@@ -492,7 +526,7 @@ async function claim(account, button, hint, { force = false } = {}) {
     toast(error.message, true)
   } finally {
     state.busy = false
-    busyButton(button, false)
+    lockAll(false)
   }
 }
 
@@ -509,6 +543,7 @@ function logItem(row) {
   const body = el('div', 'tl-body')
   let title = ''
   if (kind === 'import') title = `导入账号 ${(row.ids || []).join('、')}`
+  else if (kind === 'settings') title = `设置 · ${row.message || (ok ? '已更新' : '未生效')}`
   else if (kind === 'activation') title = `活跃事件 · ${ok ? '已补报' : (row.message || row.code || '失败')}`
   else if (kind === 'confirm') title = `营销回执 · ${ok ? '已确认' : (row.message || row.code || '失败')}${row.recheck ? ` · 复查：${row.recheck}` : ''}`
   else if (ok) title = `${row.plan || row.plan_id || '赠卡'} · 已领取`
@@ -520,15 +555,101 @@ function logItem(row) {
   return item
 }
 
+// 只显示最近 10 条：这个面板是「刚才发生了什么」，不是审计台账。
+// 要看得多在地址上带 ?limit=200（服务端把上限钉在 200）。
 async function loadLog() {
-  const got = await api('/api/log?limit=50')
+  const got = await api('/api/log?limit=10')
   state.logRows = Array.isArray(got.rows) ? got.rows : []
+  if (Number.isFinite(got.claimed_today)) state.claimedToday = got.claimed_today
   const host = $('log')
   host.replaceChildren()
   for (const row of state.logRows) host.append(logItem(row))
   $('log-empty').hidden = state.logRows.length > 0
-  $('log-count').textContent = state.logRows.length ? `最近 ${state.logRows.length} 条` : ''
+  const total = Number(got.total) || state.logRows.length
+  $('log-count').textContent = state.logRows.length
+    ? (total > state.logRows.length ? `最近 ${state.logRows.length} 条 · 共 ${total} 条` : `最近 ${state.logRows.length} 条`)
+    : ''
   paintStats()
+}
+
+// ---- 每日自动活跃的开关（眼睛在按钮上，不在环境变量里）----
+function paintAutoActive() {
+  const button = $('auto-active')
+  const text = $('auto-active-text')
+  if (!button || !text) return
+  const s = state.settings
+  if (!s) {
+    button.hidden = true
+    return
+  }
+  button.hidden = false
+  const on = Boolean(s.auto_active)
+  const locked = Boolean(s.auto_locked)
+  button.classList.toggle('is-on', on)
+  button.setAttribute('aria-pressed', String(on))
+  button.disabled = locked
+  button.title = locked
+    ? 'ZCODE_CLAIM_AUTO_ACTIVE=0 把定时锁死了；去掉这个环境变量才能从这里打开'
+    : on
+      ? `开：每天 08:00–09:00 之间自动补报一次活跃（今天排在 ${s.auto_at}）。点一下关掉。`
+      : '关：点一下打开，每天 08:00–09:00 随机一分钟自动补报活跃。'
+  text.textContent = locked ? '每日活跃 已锁' : on ? `每日活跃 ${s.auto_at}` : '每日活跃 关'
+}
+
+// 上一次看过的「自动活跃跑过的时刻」。轮询靠它判断服务端是不是刚跑过一轮。
+let autoSeen = 0
+
+async function loadSettings() {
+  try {
+    state.settings = await api('/api/settings')
+  } catch {
+    // 读不到就不显示按钮 —— 总比显示一个点了没反应的开关强
+    state.settings = null
+  }
+  autoSeen = Number(state.settings?.auto_last) || 0
+  paintAutoActive()
+}
+
+async function toggleAutoActive() {
+  const button = $('auto-active')
+  if (!button || button.disabled) return
+  const want = !(state.settings && state.settings.auto_active)
+  busyButton(button, true)
+  try {
+    state.settings = await api('/api/settings', { method: 'POST', body: { auto_active: want } })
+  } catch (error) {
+    toast(error.message, true)
+  } finally {
+    // busyButton 会把 disabled 解开，所以重画一次才对：env 锁死时它得弹回去
+    busyButton(button, false)
+    paintAutoActive()
+  }
+  if (state.settings && state.settings.auto_active === want) {
+    toast(want ? `已开：每天 ${state.settings.auto_at} 自动补报活跃` : '已关掉每日自动活跃')
+  }
+}
+
+// 自动活跃是服务端定时器，页面可能一开就是一整天。每分钟看一眼它跑过没有 ——
+// 跑过就整页重画（卡片上的「活跃 ✓/✗」和下方记录都要跟着变）。
+// 只看本地端点，不碰上游，所以不算「轮询营销 feed」。
+async function watchAuto() {
+  if (document.hidden) return
+  try {
+    const s = await api('/api/settings')
+    const last = Number(s.auto_last) || 0
+    const ran = last > autoSeen && last > 0
+    autoSeen = last
+    const switched = state.settings && state.settings.auto_active !== s.auto_active
+    state.settings = s
+    if (switched) paintAutoActive()
+    if (ran) {
+      await load()
+      const { auto_last_ok: ok = 0, auto_last_failed: bad = 0 } = s
+      toast(bad ? `每日活跃：${ok} 个已报，${bad} 个失败` : `每日活跃：${ok} 个账号已自动补报`, Boolean(bad))
+    }
+  } catch {
+    /* 轮询失败不打扰用户：下一分钟再试 */
+  }
 }
 
 async function load() {
@@ -541,7 +662,7 @@ async function load() {
     state.accounts = Array.isArray(got.accounts) ? got.accounts : []
     renderAccounts()
     say(`${state.accounts.length} 个 ZCode 账号 · 直连 zcode.z.ai`, String(got.config || ''))
-    await loadLog()
+    await Promise.all([loadLog(), loadSettings()])
   } catch (error) {
     $('accounts').replaceChildren()
     say(`读取失败：${error.message}`)
@@ -552,10 +673,15 @@ async function load() {
 }
 
 $('refresh').addEventListener('click', () => { void load() })
+$('auto-active').addEventListener('click', () => { void toggleAutoActive() })
 
 // 滚起来之后顶栏落一道阴影，内容从下面穿过去时有层次
 const onScroll = () => document.body.classList.toggle('is-scrolled', window.scrollY > 4)
 window.addEventListener('scroll', onScroll, { passive: true })
 onScroll()
+
+// 每日自动活跃跑在服务端：页面开着的时候得自己发现它跑过了
+setInterval(() => { void watchAuto() }, 60_000)
+document.addEventListener('visibilitychange', () => { if (!document.hidden) void watchAuto() })
 
 void load()
