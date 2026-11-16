@@ -29,6 +29,17 @@ const state = {
 
 // 口令放 query、body 用 text/plain：两个都是「简单请求」，不触发预检。
 // 在 magpie 的不透明来源框架里，带自定义头的预检会被拦，表现就是一直停在「读取中…」。
+// 每个端点自己的超时。以前统一 15 秒，而 /api/claim 在服务端最坏要几十秒：
+// scene 15s + claim 25s + 回执 8s×N + 复查 20s。网络一抖，浏览器先报「出错」，
+// 服务端却还在后台把卡领了 —— 用户以为失败反复重试。
+const TIMEOUT_MS = {
+  default: 15_000,
+  claim: 120_000,
+  plans: 60_000,
+  scene: 30_000,
+  activation: 30_000,
+}
+
 async function api(path, init = {}) {
   // 按文档地址算，而不是写成 /api/...：magpie web 把服务挂在路径前缀下时，
   // 以 / 开头的绝对路径会跑出前缀，页面上就是「读取失败」。
@@ -36,12 +47,13 @@ async function api(path, init = {}) {
   const url = target.pathname + target.search + (target.search ? '&' : '?') + 'k=' + encodeURIComponent(KEY)
   // body 传对象时要自己序列化：fetch 只认字符串，否则会变成 "[object Object]"
   const payload = init.body && typeof init.body === 'object' ? JSON.stringify(init.body) : init.body
+  const { timeoutMs, ...rest } = init
   const response = await fetch(url, {
-    ...init,
+    ...rest,
     body: payload,
     headers: { 'content-type': 'text/plain', ...(init.headers || {}) },
     cache: 'no-store',
-    signal: AbortSignal.timeout(15000),
+    signal: AbortSignal.timeout(timeoutMs || TIMEOUT_MS.default),
   })
   const text = await response.text()
   let body = text
@@ -378,7 +390,7 @@ async function reportActivation(account, button, hint) {
   if (button.disabled) return
   busyButton(button, true)
   try {
-    const result = await api('/api/activation', { method: 'POST', body: { account: account.id } })
+    const result = await api('/api/activation', { method: 'POST', body: { account: account.id }, timeoutMs: TIMEOUT_MS.activation })
     if (result.ok) {
       account.activation_today = true
       button.textContent = '活跃 ✓'
@@ -401,6 +413,20 @@ async function reportActivation(account, button, hint) {
   }
 }
 
+// 领完之后本地先记上：下一次点「领取」时那句「今天已领 N 张」才是对的，
+// 不用等整页 reload。
+function bumpClaimed(id, added = 1) {
+  const row = (state.accounts || []).find((item) => item.id === id)
+  if (!row) return
+  row.claimed_today = (Number(row.claimed_today) || 0) + (Number(added) || 0)
+}
+
+// 今天这个号领到了几张（来自 /api/accounts，服务端按 claim-log 数）
+function claimedOf(id) {
+  const row = (state.accounts || []).find((item) => item.id === id)
+  return { today: Number(row?.claimed_today) || 0 }
+}
+
 async function claim(account, button, hint, { force = false } = {}) {
   if (state.busy) return
   state.busy = true
@@ -415,7 +441,7 @@ async function claim(account, button, hint, { force = false } = {}) {
   })
   try {
     const query = `/api/plans?account=${encodeURIComponent(account.id)}${force ? '&force=1' : ''}`
-    const got = await api(query)
+    const got = await api(query, { timeoutMs: TIMEOUT_MS.plans })
     const plans = Array.isArray(got.plans) ? got.plans : []
     const unread = Array.isArray(got.unread) ? got.unread.filter(Boolean) : []
     state.known.set(account.id, { plans, at: Date.now() })
@@ -439,9 +465,15 @@ async function claim(account, button, hint, { force = false } = {}) {
       // source_notes 是「为什么没有卡」：版本头太低、营销接口没部署……
       // 吞掉它就只剩「没有卡」，用户只会反复点
       const notes = Array.isArray(got.source_notes) ? got.source_notes.filter(Boolean) : []
+      // 今天已经领到过卡的话，「没有可领的卡」不等于「什么也没领到」：
+      // 卡可能已经绑上了但还没到生效时间，billing/preview 里是空的。这句必须说清楚，
+      // 否则用户（和帮他查的人）会拿着空账单得出「领取失败」的结论。
+      const claimed = claimedOf(account.id)
       let why = '当前没有可领的卡（营销 feed 为空）。'
       if (unread.length) why = `读取失败：${unread.join('；')}`
-      else if (notes.length) why = notes.join('；')
+      else if (claimed.today) {
+        why = `今天这个号已领到 ${claimed.today} 张，暂时没有可再领的卡。要是账单里还看不到，多半是没到生效时间——不是没领到。`
+      } else if (notes.length) why = notes.join('；')
       setHint(hint, {
         text: why,
         kind: unread.length ? 'error' : '',
@@ -465,7 +497,7 @@ async function claim(account, button, hint, { force = false } = {}) {
       ? `可领 ${plans.length} 张，正在验证…`
       : `可领 ${ready.length} 张（跳过 ${plans.length - ready.length} 张未开窗或已结束），正在验证…`
 
-    const scene = await api(`/api/scene?account=${encodeURIComponent(account.id)}`)
+    const scene = await api(`/api/scene?account=${encodeURIComponent(account.id)}`, { timeoutMs: TIMEOUT_MS.scene })
     const jobs = ready.map((plan) => ({
       ...plan,
       scene_id: scene.scene_id || '',
@@ -479,7 +511,7 @@ async function claim(account, button, hint, { force = false } = {}) {
       hint.textContent = `可领 ${jobs.length} 张，正在领取…`
       const rows = []
       for (const job of jobs) {
-        const one = await api('/api/claim', { method: 'POST', body: { account: account.id, plan: job.plan_id, name: job.name || '' } })
+        const one = await api('/api/claim', { method: 'POST', body: { account: account.id, plan: job.plan_id, name: job.name || '' }, timeoutMs: TIMEOUT_MS.claim })
         rows.push({ name: job.name || job.plan_id, plan: job.plan_id, ...one })
       }
       result = { ok: rows.some((row) => row.ok), claimed: rows.filter((row) => row.ok).length, results: rows }
@@ -512,9 +544,16 @@ async function claim(account, button, hint, { force = false } = {}) {
         .filter((item) => item && item.ok)
       const receiptCount = receipts.reduce((sum, item) => sum + (item.confirmed || 0), 0)
       const tail = receiptCount ? ` 营销回执已确认 ${receiptCount} 个` : ''
-      setHint(hint, { kind: 'ok', text: `已领取 ${result.claimed} / ${jobs.length} 张。${tail}` })
+      // 领到 ≠ 立刻能用：卡有生效时间（实测有 23:00 才生效的），
+      // 那会儿去查账单是空的。这里不猜具体时刻（feed 的 starts_at 是领取窗口的开始，
+      // 不是生效时间），只提醒别把「账单里没看到」当成「没领到」。
+      setHint(hint, {
+        kind: 'ok',
+        text: `已领取 ${result.claimed} / ${jobs.length} 张。${tail}若账单里暂时看不到，多半是没到生效时间。`,
+      })
       if (popup) hint.title = popup // feed 里客户端自己的分享文案，选中就能复制
       toast(`已领取 ${result.claimed} 张卡`)
+      bumpClaimed(account.id, result.claimed)
     } else {
       const why = Array.isArray(result.results) ? (result.results.find((row) => !row.ok)?.message || '') : ''
       setHint(hint, { kind: 'error', text: why ? `没有领到卡：${why}（详情见下方记录）` : '没有领到卡，详情见下方记录。' })

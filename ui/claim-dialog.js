@@ -44,7 +44,13 @@ export function ticketOf(param, region = 'cn') {
   const text = param.trim()
   if (text.length < 100 || text.length > 32 * 1024) return null
   let json
-  try { json = atob(text.replace(/-/g, '+').replace(/_/g, '/')) } catch { return null }
+  try {
+    // base64url → base64 并补齐 padding：atob 不接受长度不是 4 的倍数的输入，
+    // 而服务端 Buffer 是宽容的 —— 不补的话两端判定会不一致，
+    // 表现为「页面说票无效，服务端说票是好的」，用户白点一次滑块。
+    const b64 = text.replace(/-/g, '+').replace(/_/g, '/')
+    json = atob(b64 + '='.repeat((4 - (b64.length % 4)) % 4))
+  } catch { return null }
   let value
   try { value = JSON.parse(json) } catch { return null }
   if (!value || typeof value !== 'object' || typeof value.certifyId !== 'string' || !value.certifyId) return null
