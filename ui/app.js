@@ -25,6 +25,8 @@ const state = {
   // 从这 10 条里数会让今天领了 15 张的号只报 5 张。
   claimedToday: null,
   settings: null, // { auto_active, auto_locked, auto_at }
+  appVersion: '', // 当前拿去请求上游的客户端版本号（插件选项 app_version）
+  appLocked: false, // 被 ZCODE_CLAIM_APP_VERSION 锁死时为 true
 }
 
 // 口令放 query、body 用 text/plain：两个都是「简单请求」，不触发预检。
@@ -699,8 +701,15 @@ async function load() {
   try {
     const got = await api('/api/accounts')
     state.accounts = Array.isArray(got.accounts) ? got.accounts : []
+    state.appVersion = String(got.app_version || '')
+    state.appLocked = Boolean(got.app_version_locked)
     renderAccounts()
-    say(`${state.accounts.length} 个 ZCode 账号 · 直连 zcode.z.ai`, String(got.config || ''))
+    // 版本号决定上游发什么卡、要不要验证，所以它不是细节，写在状态行里看得见
+    const version = state.appVersion ? `客户端 ${state.appVersion}${state.appLocked ? '（环境变量锁定）' : ''}` : ''
+    say(
+      [`${state.accounts.length} 个 ZCode 账号`, version, '直连 zcode.z.ai'].filter(Boolean).join(' · '),
+      String(got.config || ''),
+    )
     await Promise.all([loadLog(), loadSettings()])
   } catch (error) {
     $('accounts').replaceChildren()
